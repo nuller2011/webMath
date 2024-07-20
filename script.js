@@ -15,7 +15,11 @@ canvas.width = 500;
 canvas.height = 300;
 
 // Initialize PeerJS
-peer = new Peer();
+peer = new Peer({
+    host: 'peerjs-server.herokuapp.com',
+    secure: true,
+    port: 443,
+});
 
 // Get user media
 navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
@@ -65,7 +69,6 @@ canvas.onmousedown = function (e) {
     canvas.onmousemove = function (e) {
         ctx.lineTo(e.offsetX, e.offsetY);
         ctx.stroke();
-        peer.send({ 'drawing': { x: e.offsetX, y: e.offsetY } });
     };
 };
 
