@@ -31,8 +31,9 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream =>
 });
 
 getPeerIdButton.onclick = () => {
+    yourIdDisplay.innerText = 'Loading...';
     peer.on('open', id => {
-        yourIdDisplay.innerText = `Your peer ID is: ${id}`;
+        yourIdDisplay.innerText = id;
     });
 };
 
