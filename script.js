@@ -6,9 +6,9 @@ const ctx = canvas.getContext('2d');
 const connectButton = document.getElementById('connectButton');
 const peerIdInput = document.getElementById('peer-id-input');
 const yourIdDisplay = document.getElementById('your-id');
+const getPeerIdButton = document.getElementById('getPeerIdButton');
 
 let localStream;
-let remoteStream;
 let peer;
 
 canvas.width = 500;
@@ -30,9 +30,11 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream =>
     });
 });
 
-peer.on('open', id => {
-    yourIdDisplay.innerText = `Your peer ID is: ${id}`;
-});
+getPeerIdButton.onclick = () => {
+    peer.on('open', id => {
+        yourIdDisplay.innerText = `Your peer ID is: ${id}`;
+    });
+};
 
 connectButton.onclick = () => {
     const anotherPeerId = peerIdInput.value;
