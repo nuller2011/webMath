@@ -3,6 +3,9 @@ const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const canvas = document.getElementById('whiteboard');
 const ctx = canvas.getContext('2d');
+const connectButton = document.getElementById('connectButton');
+const peerIdInput = document.getElementById('peer-id-input');
+const yourIdDisplay = document.getElementById('your-id');
 
 let localStream;
 let remoteStream;
@@ -25,18 +28,21 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream =>
             remoteVideo.srcObject = remoteStream;
         });
     });
-
-    // Connect to peer automatically
-    peer.on('open', id => {
-        const anotherPeerId = prompt('Enter the ID of the other peer:');
-        if (anotherPeerId) {
-            const call = peer.call(anotherPeerId, stream);
-            call.on('stream', remoteStream => {
-                remoteVideo.srcObject = remoteStream;
-            });
-        }
-    });
 });
+
+peer.on('open', id => {
+    yourIdDisplay.innerText = `Your peer ID is: ${id}`;
+});
+
+connectButton.onclick = () => {
+    const anotherPeerId = peerIdInput.value;
+    if (anotherPeerId) {
+        const call = peer.call(anotherPeerId, localStream);
+        call.on('stream', remoteStream => {
+            remoteVideo.srcObject = remoteStream;
+        });
+    }
+};
 
 // Screen sharing
 screenShareButton.onclick = async () => {
@@ -71,8 +77,4 @@ peer.on('connection', conn => {
             ctx.stroke();
         }
     });
-});
-
-peer.on('open', id => {
-    document.getElementById('peer-id').innerText = `Your peer ID is: ${id}`;
 });
