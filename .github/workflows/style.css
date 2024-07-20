@@ -1,0 +1,22 @@
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+#video-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+video {
+    width: 300px;
+    height: 200px;
+    margin: 0 10px;
+    background-color: #333;
+}
+
+canvas {
+    border: 1px solid black;
+    cursor: crosshair;
+}
