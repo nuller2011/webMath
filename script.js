@@ -1,154 +1,118 @@
+const createRoomButton = document.getElementById('createRoomButton');
+const joinRoomButton = document.getElementById('joinRoomButton');
+const roomIdDisplay = document.getElementById('room-id');
+const roomIdInput = document.getElementById('room-id-input');
 const screenShareButton = document.getElementById('screenShareButton');
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const canvas = document.getElementById('whiteboard');
 const ctx = canvas.getContext('2d');
-const connectButton = document.getElementById('connectButton');
-const peerIdInput = document.getElementById('peer-id-input');
-const yourIdDisplay = document.getElementById('your-id');
 
 let localStream;
-let peerConnection;
-let dataChannel;
-const peerId = generateId();
-let webSocket;
+let remoteStream;
+let connection;
+const canvasWidth = 500;
+const canvasHeight = 300;
 
-yourIdDisplay.innerText = peerId;
+canvas.width = canvasWidth;
+canvas.height = canvasHeight;
 
-const configuration = {
-    iceServers: [
-        {
-            urls: 'stun:stun.l.google.com:19302'
-        }
-    ]
-};
+// Initialize Photon
+const photonAppId = 'YOUR_PHOTON_APP_ID';  // Replace with your Photon App ID
+const photonAppVersion = '1.0';
+const photon = new Photon.LoadBalancing.LoadBalancingClient(
+    Photon.ConnectionProtocol.Wss, photonAppId, photonAppVersion
+);
 
-function generateId() {
-    return Math.floor(Math.random() * 1000000).toString();
-}
+// Connect to Photon
+photon.connectToRegionMaster('EU');
 
-// Initialize local video stream
+// Get user media
 navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
     localStream = stream;
     localVideo.srcObject = stream;
 });
 
-// Initialize WebSocket connection
-webSocket = new WebSocket('wss://your-server-address');
-
-webSocket.onmessage = async (message) => {
-    const signal = JSON.parse(message.data);
-    await handleSignal(signal);
+photon.onStateChange = function (state) {
+    console.log(`Photon state: ${state}`);
 };
 
-connectButton.onclick = async () => {
-    const anotherPeerId = peerIdInput.value;
-    if (anotherPeerId) {
-        await initiateCall(anotherPeerId);
+photon.onJoinRoom = function () {
+    console.log('Joined room');
+};
+
+photon.onEvent = function (code, content, actorNr) {
+    if (code === 1) {
+        handleRemoteStream(content);
+    } else if (code === 2) {
+        drawOnRemoteWhiteboard(content);
     }
 };
 
-async function initiateCall(anotherPeerId) {
-    peerConnection = new RTCPeerConnection(configuration);
+createRoomButton.onclick = () => {
+    const roomId = Math.random().toString(36).substring(2, 15);
+    roomIdDisplay.innerText = roomId;
+    photon.joinOrCreateRoom(roomId);
+    initializeConnection();
+};
 
-    peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-            sendSignal(anotherPeerId, {
-                type: 'candidate',
-                candidate: event.candidate
-            });
-        }
-    };
+joinRoomButton.onclick = () => {
+    const roomId = roomIdInput.value;
+    if (roomId) {
+        photon.joinRoom(roomId);
+        initializeConnection();
+    }
+};
 
-    peerConnection.ontrack = event => {
+function initializeConnection() {
+    connection = new RTCPeerConnection();
+
+    connection.ontrack = event => {
         remoteVideo.srcObject = event.streams[0];
     };
 
     localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localStream);
+        connection.addTrack(track, localStream);
     });
 
-    dataChannel = peerConnection.createDataChannel('whiteboard');
-
-    dataChannel.onmessage = event => {
-        const message = JSON.parse(event.data);
-        if (message.drawing) {
-            ctx.lineTo(message.drawing.x, message.drawing.y);
-            ctx.stroke();
+    connection.onicecandidate = event => {
+        if (event.candidate) {
+            photon.raiseEvent(1, JSON.stringify(event.candidate));
         }
     };
 
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-
-    sendSignal(anotherPeerId, {
-        type: 'offer',
-        offer: offer
-    });
+    connection.createOffer()
+        .then(offer => connection.setLocalDescription(offer))
+        .then(() => photon.raiseEvent(1, JSON.stringify(connection.localDescription)));
 }
 
-async function handleSignal(signal) {
-    if (signal.type === 'offer') {
-        peerConnection = new RTCPeerConnection(configuration);
-
-        peerConnection.onicecandidate = event => {
-            if (event.candidate) {
-                sendSignal(signal.from, {
-                    type: 'candidate',
-                    candidate: event.candidate
-                });
-            }
-        };
-
-        peerConnection.ontrack = event => {
-            remoteVideo.srcObject = event.streams[0];
-        };
-
-        peerConnection.ondatachannel = event => {
-            dataChannel = event.channel;
-            dataChannel.onmessage = event => {
-                const message = JSON.parse(event.data);
-                if (message.drawing) {
-                    ctx.lineTo(message.drawing.x, message.drawing.y);
-                    ctx.stroke();
+function handleRemoteStream(message) {
+    const data = JSON.parse(message);
+    if (data.sdp) {
+        connection.setRemoteDescription(new RTCSessionDescription(data.sdp))
+            .then(() => {
+                if (data.sdp.type === 'offer') {
+                    connection.createAnswer()
+                        .then(answer => connection.setLocalDescription(answer))
+                        .then(() => photon.raiseEvent(1, JSON.stringify(connection.localDescription)));
                 }
-            };
-        };
-
-        localStream.getTracks().forEach(track => {
-            peerConnection.addTrack(track, localStream);
-        });
-
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
-
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-
-        sendSignal(signal.from, {
-            type: 'answer',
-            answer: answer
-        });
-    } else if (signal.type === 'answer') {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
-    } else if (signal.type === 'candidate') {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            });
+    } else if (data.candidate) {
+        connection.addIceCandidate(new RTCIceCandidate(data.candidate));
     }
-}
-
-function sendSignal(peerId, signal) {
-    signal.from = peerId;
-    webSocket.send(JSON.stringify(signal));
 }
 
 // Screen sharing
 screenShareButton.onclick = async () => {
     const displayStream = await navigator.mediaDevices.getDisplayMedia();
     const screenTrack = displayStream.getTracks()[0];
-
-    peerConnection.getSenders().find(sender => sender.track.kind === 'video').replaceTrack(screenTrack);
+    connection.addTrack(screenTrack, displayStream);
 
     screenTrack.onended = () => {
-        peerConnection.getSenders().find(sender => sender.track.kind === 'video').replaceTrack(localStream.getVideoTracks()[0]);
+        // Revert back to the camera stream when screen sharing ends
+        localStream.getTracks().forEach(track => {
+            connection.addTrack(track, localStream);
+        });
     };
 };
 
@@ -158,7 +122,7 @@ canvas.onmousedown = function (e) {
     canvas.onmousemove = function (e) {
         ctx.lineTo(e.offsetX, e.offsetY);
         ctx.stroke();
-        dataChannel.send(JSON.stringify({ 'drawing': { x: e.offsetX, y: e.offsetY } }));
+        photon.raiseEvent(2, { x: e.offsetX, y: e.offsetY });
     };
 };
 
@@ -166,3 +130,7 @@ canvas.onmouseup = function () {
     canvas.onmousemove = null;
 };
 
+function drawOnRemoteWhiteboard(data) {
+    ctx.lineTo(data.x, data.y);
+    ctx.stroke();
+}
