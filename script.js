@@ -6,60 +6,149 @@ const ctx = canvas.getContext('2d');
 const connectButton = document.getElementById('connectButton');
 const peerIdInput = document.getElementById('peer-id-input');
 const yourIdDisplay = document.getElementById('your-id');
-const getPeerIdButton = document.getElementById('getPeerIdButton');
 
 let localStream;
-let peer;
+let peerConnection;
+let dataChannel;
+const peerId = generateId();
+let webSocket;
 
-canvas.width = 500;
-canvas.height = 300;
+yourIdDisplay.innerText = peerId;
 
-// Initialize PeerJS
-peer = new Peer({
-    host: 'peerjs-server.herokuapp.com',
-    secure: true,
-    port: 443,
-});
+const configuration = {
+    iceServers: [
+        {
+            urls: 'stun:stun.l.google.com:19302'
+        }
+    ]
+};
 
-// Get user media
+function generateId() {
+    return Math.floor(Math.random() * 1000000).toString();
+}
+
+// Initialize local video stream
 navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
     localStream = stream;
     localVideo.srcObject = stream;
-
-    peer.on('call', call => {
-        call.answer(stream); // Answer the call with our stream
-        call.on('stream', remoteStream => {
-            remoteVideo.srcObject = remoteStream;
-        });
-    });
 });
 
-getPeerIdButton.onclick = () => {
-    yourIdDisplay.innerText = 'Loading...';
-    peer.on('open', id => {
-        yourIdDisplay.innerText = id;
-    });
+// Initialize WebSocket connection
+webSocket = new WebSocket('wss://your-server-address');
+
+webSocket.onmessage = async (message) => {
+    const signal = JSON.parse(message.data);
+    await handleSignal(signal);
 };
 
-connectButton.onclick = () => {
+connectButton.onclick = async () => {
     const anotherPeerId = peerIdInput.value;
     if (anotherPeerId) {
-        const call = peer.call(anotherPeerId, localStream);
-        call.on('stream', remoteStream => {
-            remoteVideo.srcObject = remoteStream;
-        });
+        await initiateCall(anotherPeerId);
     }
 };
+
+async function initiateCall(anotherPeerId) {
+    peerConnection = new RTCPeerConnection(configuration);
+
+    peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+            sendSignal(anotherPeerId, {
+                type: 'candidate',
+                candidate: event.candidate
+            });
+        }
+    };
+
+    peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+    };
+
+    localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+    });
+
+    dataChannel = peerConnection.createDataChannel('whiteboard');
+
+    dataChannel.onmessage = event => {
+        const message = JSON.parse(event.data);
+        if (message.drawing) {
+            ctx.lineTo(message.drawing.x, message.drawing.y);
+            ctx.stroke();
+        }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    sendSignal(anotherPeerId, {
+        type: 'offer',
+        offer: offer
+    });
+}
+
+async function handleSignal(signal) {
+    if (signal.type === 'offer') {
+        peerConnection = new RTCPeerConnection(configuration);
+
+        peerConnection.onicecandidate = event => {
+            if (event.candidate) {
+                sendSignal(signal.from, {
+                    type: 'candidate',
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        peerConnection.ontrack = event => {
+            remoteVideo.srcObject = event.streams[0];
+        };
+
+        peerConnection.ondatachannel = event => {
+            dataChannel = event.channel;
+            dataChannel.onmessage = event => {
+                const message = JSON.parse(event.data);
+                if (message.drawing) {
+                    ctx.lineTo(message.drawing.x, message.drawing.y);
+                    ctx.stroke();
+                }
+            };
+        };
+
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
+
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        sendSignal(signal.from, {
+            type: 'answer',
+            answer: answer
+        });
+    } else if (signal.type === 'answer') {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
+    } else if (signal.type === 'candidate') {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+    }
+}
+
+function sendSignal(peerId, signal) {
+    signal.from = peerId;
+    webSocket.send(JSON.stringify(signal));
+}
 
 // Screen sharing
 screenShareButton.onclick = async () => {
     const displayStream = await navigator.mediaDevices.getDisplayMedia();
     const screenTrack = displayStream.getTracks()[0];
-    peer.call(peer.id, displayStream);
+
+    peerConnection.getSenders().find(sender => sender.track.kind === 'video').replaceTrack(screenTrack);
 
     screenTrack.onended = () => {
-        // Revert back to the camera stream when screen sharing ends
-        peer.call(peer.id, localStream);
+        peerConnection.getSenders().find(sender => sender.track.kind === 'video').replaceTrack(localStream.getVideoTracks()[0]);
     };
 };
 
@@ -69,6 +158,7 @@ canvas.onmousedown = function (e) {
     canvas.onmousemove = function (e) {
         ctx.lineTo(e.offsetX, e.offsetY);
         ctx.stroke();
+        dataChannel.send(JSON.stringify({ 'drawing': { x: e.offsetX, y: e.offsetY } }));
     };
 };
 
@@ -76,11 +166,3 @@ canvas.onmouseup = function () {
     canvas.onmousemove = null;
 };
 
-peer.on('connection', conn => {
-    conn.on('data', message => {
-        if (message.drawing) {
-            ctx.lineTo(message.drawing.x, message.drawing.y);
-            ctx.stroke();
-        }
-    });
-});
