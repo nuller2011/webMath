@@ -5,19 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Chat with Screen Sharing and Whiteboard</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/photon-javascript-sdk"></script>
 </head>
 <body>
     <h1>Video Chat with Screen Sharing and Whiteboard</h1>
     <div id="video-container">
         <video id="localVideo" autoplay muted></video>
-        <video id="remoteVideo" autoplay></video>
+        <video id="remoteVideo" autoplay></></video>
     </div>
     <div>
-        <label for="peer-id-input">Enter the ID of the other peer:</label>
-        <input type="text" id="peer-id-input">
-        <button id="connectButton">Connect</button>
+        <button id="createRoomButton">Create Room</button>
+        <div id="room-id-container">Room ID: <span id="room-id"></span></div>
     </div>
-    <div id="your-id-container">Your peer ID is: <span id="your-id"></span></div>
+    <div>
+        <label for="room-id-input">Enter Room ID:</label>
+        <input type="text" id="room-id-input">
+        <button id="joinRoomButton">Join Room</button>
+    </div>
     <button id="screenShareButton">Share Screen</button>
     <canvas id="whiteboard"></canvas>
     <script src="script.js"></script>
