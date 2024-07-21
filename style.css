@@ -21,6 +21,7 @@ canvas {
     cursor: crosshair;
 }
 
-#your-id {
+#room-id-container {
     margin: 20px 0;
 }
+    
